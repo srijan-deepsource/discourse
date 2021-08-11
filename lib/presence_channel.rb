@@ -12,7 +12,7 @@ class PresenceChannel
     @message_bus_channel_name = "/presence/#{name}"
   end
 
-  def present(user_id:, client_id: nil)
+  def present(user_id:, client_id:)
     result = Discourse.redis.eval(
       PRESENT_LUA,
       redis_keys,
@@ -26,7 +26,7 @@ class PresenceChannel
     auto_leave
   end
 
-  def leave(user_id:, client_id: nil)
+  def leave(user_id:, client_id:)
     result = Discourse.redis.eval(
       LEAVE_LUA,
       redis_keys,

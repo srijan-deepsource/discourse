@@ -36,7 +36,7 @@ describe PresenceChannel do
 
     channel = PresenceChannel.new("test")
 
-    channel.present(user_id: 1)
+    channel.present(user_id: 1, client_id: 76)
     channel.present(user_id: 1, client_id: 77)
 
     expect(channel.count).to eq(1)
