@@ -1,6 +1,5 @@
 import SelectKitComponent from "select-kit/components/select-kit";
 import { computed } from "@ember/object";
-import deprecated from "discourse-common/lib/deprecated";
 import { isPresent } from "@ember/utils";
 import layout from "select-kit/templates/components/multi-select";
 import { makeArray } from "discourse-common/lib/helpers";
@@ -16,12 +15,20 @@ export default SelectKitComponent.extend({
     clearable: true,
     filterable: true,
     filterIcon: null,
-    clearOnClick: true,
     closeOnChange: false,
     autoInsertNoneItem: false,
     headerComponent: "multi-select/multi-select-header",
-    filterComponent: "multi-select/multi-select-filter",
+    autoFilterable: true,
+    caretDownIcon: "caretIcon",
+    caretUpIcon: "caretIcon",
   },
+
+  caretIcon: computed("value.[]", function () {
+    const maximum = this.selectKit.options.maximum;
+    return maximum && makeArray(this.value).length >= parseInt(maximum, 10)
+      ? null
+      : "plus";
+  }),
 
   search(filter) {
     return this._super(filter).filter(
@@ -98,7 +105,7 @@ export default SelectKitComponent.extend({
       );
 
       this.selectKit.change(
-        newValues,
+        [...new Set(newValues)],
         newContent.length
           ? newContent
           : makeArray(this.defaultItem(value, value))
@@ -131,9 +138,9 @@ export default SelectKitComponent.extend({
       });
 
       return this.selectKit.modifySelection(content);
-    } else {
-      return this.selectKit.noneItem;
     }
+
+    return null;
   }),
 
   _onKeydown(event) {
@@ -170,24 +177,5 @@ export default SelectKitComponent.extend({
     }
 
     return true;
-  },
-
-  handleDeprecations() {
-    this._super(...arguments);
-
-    this._deprecateValues();
-  },
-
-  _deprecateValues() {
-    if (this.values && !this.value) {
-      deprecated(
-        "The `values` property is deprecated for multi-select. Use `value` instead",
-        {
-          since: "v2.4.0",
-        }
-      );
-
-      this.set("value", this.values);
-    }
   },
 });

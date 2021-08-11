@@ -21,6 +21,7 @@ export default Component.extend({
   translatedAriaLabel: null,
   forwardEvent: false,
   preventFocus: false,
+  onKeyDown: null,
 
   isLoading: computed({
     set(key, value) {
@@ -102,6 +103,13 @@ export default Component.extend({
     }
     if (ariaExpanded === false) {
       return "false";
+    }
+  },
+
+  keyDown(e) {
+    if (this.onKeyDown) {
+      e.stopPropagation();
+      this.onKeyDown(e);
     }
   },
 

@@ -8,7 +8,10 @@
   }}
 
   {{#select-kit/select-kit-body selectKit=selectKit id=(concat selectKit.uniqueID "-body")}}
-    {{component selectKit.options.filterComponent selectKit=selectKit id=(concat selectKit.uniqueID "-filter")}}
+    {{component selectKit.options.filterComponent
+      selectKit=selectKit
+      id=(concat selectKit.uniqueID "-filter")
+    }}
 
     {{#if selectKit.isLoading}}
       <span class="is-loading">
@@ -34,6 +37,4 @@
       {{/each}}
     {{/if}}
   {{/select-kit/select-kit-body}}
-
-  <div class="select-kit-wrapper"></div>
 {{/unless}}

@@ -12,8 +12,7 @@ export default Component.extend(UtilsMixin, {
   classNames: ["select-kit-filter"],
   classNameBindings: ["isExpanded:is-expanded"],
   attributeBindings: ["role"],
-
-  role: "searchbox",
+  tabIndex: -1,
 
   isHidden: computed(
     "selectKit.options.{filterable,allowAny,autoFilterable}",
@@ -68,7 +67,12 @@ export default Component.extend(UtilsMixin, {
         return false;
       }
 
-      // Do nothing for left/right arrow
+      if (event.key === "Tab" && this.selectKit.isLoading) {
+        this.selectKit.cancelSearch();
+        this.selectKit.mainElement().open = false;
+        return true;
+      }
+
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         return true;
       }
@@ -83,13 +87,12 @@ export default Component.extend(UtilsMixin, {
         return false;
       }
 
-      // Escape
       if (event.key === "Escape") {
-        this.selectKit.close(event);
+        this.selectKit.mainElement().open = false;
+        this.selectKit.headerElement().focus();
         return false;
       }
 
-      // Enter
       if (event.key === "Enter" && this.selectKit.highlighted) {
         this.selectKit.select(
           this.getValue(this.selectKit.highlighted),
@@ -108,18 +111,6 @@ export default Component.extend(UtilsMixin, {
           event.stopPropagation();
         }
         return false;
-      }
-
-      // Tab
-      if (event.key === "Tab") {
-        if (this.selectKit.highlighted && this.selectKit.isExpanded) {
-          this.selectKit.select(
-            this.getValue(this.selectKit.highlighted),
-            this.selectKit.highlighted
-          );
-        }
-        this.selectKit.close(event);
-        return;
       }
 
       this.selectKit.set("highlighted", null);
