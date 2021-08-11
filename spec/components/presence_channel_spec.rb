@@ -15,8 +15,8 @@ describe PresenceChannel do
 
     expect(channel3.user_ids).to eq([])
 
-    channel1.enter(user_id: 1, client_id: 1)
-    channel2.enter(user_id: 1, client_id: 2)
+    channel1.present(user_id: 1, client_id: 1)
+    channel2.present(user_id: 1, client_id: 2)
 
     expect(channel3.user_ids).to eq([1])
     expect(channel3.count).to eq(1)
@@ -36,8 +36,8 @@ describe PresenceChannel do
 
     channel = PresenceChannel.new("test")
 
-    channel.enter(user_id: 1)
-    channel.enter(user_id: 1, client_id: 77)
+    channel.present(user_id: 1)
+    channel.present(user_id: 1, client_id: 77)
 
     expect(channel.count).to eq(1)
 
@@ -50,7 +50,7 @@ describe PresenceChannel do
     channel = PresenceChannel.new("test")
 
     messages = MessageBus.track_publish(channel.message_bus_channel_name) do
-      channel.enter(user_id: 1, client_id: "a")
+      channel.present(user_id: 1, client_id: "a")
     end
 
     expect(messages.length).to eq(1)
@@ -78,14 +78,14 @@ describe PresenceChannel do
     channel1 = PresenceChannel.new("test1")
     channel2 = PresenceChannel.new("test2")
 
-    channel1.enter(user_id: 1, client_id: "a")
-    channel2.enter(user_id: 1, client_id: "a")
+    channel1.present(user_id: 1, client_id: "a")
+    channel2.present(user_id: 1, client_id: "a")
 
     start_time = Time.zone.now
 
     freeze_time start_time + PresenceChannel::DEFAULT_TIMEOUT / 2
 
-    channel2.enter(user_id: 2, client_id: "b")
+    channel2.present(user_id: 2, client_id: "b")
 
     freeze_time start_time + PresenceChannel::DEFAULT_TIMEOUT + 1
 
@@ -100,6 +100,32 @@ describe PresenceChannel do
 
     expect(channel1.user_ids).to eq([])
     expect(channel2.user_ids).to eq([2])
+  end
+
+  it 'only sends one `enter` and `leave` message' do
+    channel = PresenceChannel.new("test")
+
+    messages = MessageBus.track_publish(channel.message_bus_channel_name) do
+      channel.present(user_id: 1, client_id: "a")
+      channel.present(user_id: 1, client_id: "a")
+    end
+    expect(messages.map(&:data)).to contain_exactly(
+      {
+        "type" => "enter",
+        "user_id" => 1,
+      }
+    )
+
+    messages = MessageBus.track_publish(channel.message_bus_channel_name) do
+      channel.leave(user_id: 1, client_id: "a")
+      channel.leave(user_id: 1, client_id: "a")
+    end
+    expect(messages.map(&:data)).to contain_exactly(
+      {
+        "type" => "leave",
+        "user_id" => 1,
+      }
+    )
   end
 
 end

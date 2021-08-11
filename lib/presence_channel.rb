@@ -12,29 +12,30 @@ class PresenceChannel
     @message_bus_channel_name = "/presence/#{name}"
   end
 
-  def enter(user_id:, client_id: nil)
-    Discourse.redis.eval(
-      ENTER_LUA,
+  def present(user_id:, client_id: nil)
+    result = Discourse.redis.eval(
+      PRESENT_LUA,
       redis_keys,
       [name, user_id, client_id, (Time.zone.now + timeout).to_i]
     )
 
-    message = {
-      "type" => "enter",
-      "user_id" => user_id,
-    }
-
-    MessageBus.publish(message_bus_channel_name, message)
+    if result == 1
+      publish_message(type: "enter", user_id: user_id)
+    end
 
     auto_leave
   end
 
   def leave(user_id:, client_id: nil)
-    Discourse.redis.eval(
+    result = Discourse.redis.eval(
       LEAVE_LUA,
       redis_keys,
       [name, user_id, client_id]
     )
+
+    if result == 1
+      publish_message(type: "leave", user_id: user_id)
+    end
 
     auto_leave
   end
@@ -66,12 +67,7 @@ class PresenceChannel
     )
 
     left_user_ids.each do |user_id|
-      message = {
-        "type" => "leave",
-        "user_id" => user_id,
-      }
-
-      MessageBus.publish(message_bus_channel_name, message)
+      publish_message(type: "leave", user_id: user_id)
     end
 
   end
@@ -84,6 +80,15 @@ class PresenceChannel
   end
 
   private
+
+  def publish_message(type:, user_id:)
+    message = {
+      "type" => type,
+      "user_id" => user_id,
+    }
+
+    MessageBus.publish(message_bus_channel_name, message)
+  end
 
   def redis_keys
     [redis_key_zlist, redis_key_hash, self.class.redis_key_channel_list]
@@ -150,24 +155,28 @@ class PresenceChannel
     end
   LUA
 
-  ENTER_LUA = <<~LUA
+  PRESENT_LUA = <<~LUA
     #{PARAMS_LUA}
 
-    redis.call('ZADD', zlist_key, expires, zlist_elem)
-    redis.call('HINCRBY', hash_key, tostring(user_id), 1)
+    local added_count = redis.call('ZADD', zlist_key, expires, zlist_elem)
+    if tonumber(added_count) > 0 then
+      redis.call('HINCRBY', hash_key, tostring(user_id), 1)
 
-    -- Add the channel to the global channel list. 'LT' means the value will
-    -- only be set if it's lower than the existing value
-    redis.call('ZADD', channels_key, "LT", expires, tostring(channel))
+      -- Add the channel to the global channel list. 'LT' means the value will
+      -- only be set if it's lower than the existing value
+      redis.call('ZADD', channels_key, "LT", expires, tostring(channel))
+    end
+
+    return added_count
   LUA
 
   LEAVE_LUA = <<~LUA
     #{PARAMS_LUA}
 
     -- Remove the user from the channel zlist
-    local removed_count = tonumber(redis.call('ZREM', zlist_key, zlist_elem))
+    local removed_count = redis.call('ZREM', zlist_key, zlist_elem)
 
-    if removed_count > 0 then
+    if tonumber(removed_count) > 0 then
       #{UPDATE_GLOBAL_CHANNELS_LUA}
 
       -- Update the user session count in the channel hash
@@ -176,6 +185,8 @@ class PresenceChannel
         redis.call('HDEL', hash_key, user_id)
       end
     end
+
+    return removed_count
   LUA
 
   USER_IDS_LUA = <<~LUA
