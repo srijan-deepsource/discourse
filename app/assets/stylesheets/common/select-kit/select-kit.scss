@@ -65,6 +65,11 @@
     flex-direction: row;
     min-height: 30px;
 
+    .select-kit-header-wrapper {
+      display: flex;
+      align-items: center;
+    }
+
     .d-icon-spinner {
       -webkit-animation: rotate-forever 1s infinite linear;
       animation: rotate-forever 1s infinite linear;
