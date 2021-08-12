@@ -140,4 +140,30 @@ describe PresenceChannel do
     expect(state.message_bus_last_id).to eq(MessageBus.last_id(channel.message_bus_channel_name))
   end
 
+  it "sets an expiry on all channel-specific keys" do
+    r = Discourse.redis.without_namespace
+    channel = PresenceChannel.new("test1")
+    channel.present(user_id: 1, client_id: "a")
+
+    channels_ttl = r.ttl(PresenceChannel.redis_key_channel_list)
+    expect(channels_ttl).to eq(-1) # Persistent
+
+    initial_zlist_ttl = r.ttl(channel.send(:redis_key_zlist))
+    initial_hash_ttl = r.ttl(channel.send(:redis_key_hash))
+
+    expect(initial_zlist_ttl).to be_between(PresenceChannel::GC_SECONDS, PresenceChannel::GC_SECONDS + 5.minutes)
+    expect(initial_hash_ttl).to be_between(PresenceChannel::GC_SECONDS, PresenceChannel::GC_SECONDS + 5.minutes)
+
+    freeze_time 1.minute.from_now
+
+    # PresenceChannel#present is responsible for bumping ttl
+    channel.present(user_id: 1, client_id: "a")
+
+    new_zlist_ttl = r.ttl(channel.send(:redis_key_zlist))
+    new_hash_ttl = r.ttl(channel.send(:redis_key_hash))
+
+    expect(new_zlist_ttl).to be > initial_zlist_ttl
+    expect(new_hash_ttl).to be > initial_hash_ttl
+  end
+
 end

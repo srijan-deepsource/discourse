@@ -15,6 +15,7 @@ class PresenceChannel
   end
 
   DEFAULT_TIMEOUT ||= 60
+  GC_SECONDS ||= 24.hours.to_i
 
   attr_reader :name, :timeout, :message_bus_channel_name
 
@@ -218,6 +219,9 @@ class PresenceChannel
       -- only be set if it's lower than the existing value
       redis.call('ZADD', channels_key, "LT", expires, tostring(channel))
     end
+
+    redis.call('EXPIREAT', hash_key, expires + #{GC_SECONDS})
+    redis.call('EXPIREAT', zlist_key, expires + #{GC_SECONDS})
 
     return added_count
   LUA
