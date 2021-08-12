@@ -127,7 +127,7 @@ describe ::Presence::PresencesController do
 
         message = messages.first
 
-        expect(message.channel).to eq("/presence/#{public_topic.id}")
+        expect(message.channel).to eq("/legacy-presence/#{public_topic.id}")
         expect(message.data.dig(:user, :id)).to eq(user.id)
         expect(message.data[:published_at]).to eq(Time.zone.now.to_i)
         expect(message.group_ids).to eq(nil)
@@ -150,7 +150,7 @@ describe ::Presence::PresencesController do
 
         message = messages.first
 
-        expect(message.channel).to eq("/presence/#{private_topic.id}")
+        expect(message.channel).to eq("/legacy-presence/#{private_topic.id}")
         expect(message.data.dig(:user, :id)).to eq(user.id)
         expect(message.data[:published_at]).to eq(Time.zone.now.to_i)
         expect(message.group_ids).to contain_exactly(group.id)

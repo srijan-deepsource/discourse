@@ -98,7 +98,7 @@ const Presence = EmberObject.extend({
 
   @discourseComputed("topicId")
   channel(topicId) {
-    return `/presence/${topicId}`;
+    return `/legacy-presence/${topicId}`;
   },
 
   publish(state, whisper, postId, staffOnly) {
