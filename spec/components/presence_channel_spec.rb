@@ -128,4 +128,16 @@ describe PresenceChannel do
     )
   end
 
+  it "will return the messagebus last_id in the state payload" do
+    channel = PresenceChannel.new("test1")
+
+    channel.present(user_id: 1, client_id: "a")
+    channel.present(user_id: 2, client_id: "a")
+
+    state = channel.state
+    expect(state.user_ids).to contain_exactly(1, 2)
+    expect(state.count).to eq(2)
+    expect(state.message_bus_last_id).to eq(MessageBus.last_id(channel.message_bus_channel_name))
+  end
+
 end

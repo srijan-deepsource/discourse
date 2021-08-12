@@ -9,13 +9,12 @@ class PresenceController < ApplicationController
     channel = PresenceChannel.new(name)
     message_bus_channel_name = channel.message_bus_channel_name
 
-    ids = channel.user_ids
-    last_id = MessageBus.last_id(message_bus_channel_name)
+    state = channel.state
 
     render json: {
-      user_ids: ids,
-      count: ids.count,
-      last_message_id: last_id
+      user_ids: state.user_ids,
+      count: state.count,
+      last_message_id: state.message_bus_last_id
     }
   end
 

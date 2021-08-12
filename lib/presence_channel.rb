@@ -1,6 +1,18 @@
 # frozen_string_literal: true
 
 class PresenceChannel
+  class State
+    attr_reader :message_bus_last_id
+    attr_reader :user_ids
+    attr_reader :count
+
+    def initialize(message_bus_last_id: , user_ids: nil, count: nil)
+      raise "user_ids or count required" if user_ids.nil? && count.nil?
+      @message_bus_last_id = message_bus_last_id
+      @user_ids = user_ids
+      @count = count || user_ids.count
+    end
+  end
 
   DEFAULT_TIMEOUT ||= 60
 
@@ -13,7 +25,7 @@ class PresenceChannel
   end
 
   def present(user_id:, client_id:)
-    result = Discourse.redis.eval(
+    result = PresenceChannel.redis.eval(
       PRESENT_LUA,
       redis_keys,
       [name, user_id, client_id, (Time.zone.now + timeout).to_i]
@@ -27,7 +39,7 @@ class PresenceChannel
   end
 
   def leave(user_id:, client_id:)
-    result = Discourse.redis.eval(
+    result = PresenceChannel.redis.eval(
       LEAVE_LUA,
       redis_keys,
       [name, user_id, client_id]
@@ -40,27 +52,43 @@ class PresenceChannel
     auto_leave
   end
 
-  def user_ids
+  def state(count_only: false)
     auto_leave
 
-    Discourse.redis.eval(
-      USER_IDS_LUA,
-      redis_keys,
-    )
+    if count_only
+      last_id, count = PresenceChannel.redis.eval(
+        COUNT_LUA,
+        redis_keys,
+        [Time.zone.now.to_i]
+      )
+    else
+      last_id, ids = PresenceChannel.redis.eval(
+        USER_IDS_LUA,
+        redis_keys,
+      )
+    end
+    count ||= ids&.count
+    last_id = nil if last_id == -1
+
+    if Rails.env.test? && MessageBus.backend == :memory
+      # Doing it this way is not atomic, but we have no other option when
+      # messagebus is not using the redis backend
+      last_id = MessageBus.last_id(message_bus_channel_name)
+    end
+
+    State.new(message_bus_last_id: last_id, user_ids: ids, count: count)
+  end
+
+  def user_ids
+    state.user_ids
   end
 
   def count
-    auto_leave
-
-    Discourse.redis.eval(
-      COUNT_LUA,
-      redis_keys,
-      [Time.zone.now.to_i]
-    )
+    state(count_only: true).count
   end
 
   def auto_leave
-    left_user_ids = Discourse.redis.eval(
+    left_user_ids = PresenceChannel.redis.eval(
       AUTO_LEAVE_LUA,
       redis_keys,
       [name, Time.zone.now.to_i]
@@ -74,9 +102,9 @@ class PresenceChannel
 
   # Clear all members of the channel. This is intended for debugging/development only
   def clear
-    Discourse.redis.without_namespace.del(redis_key_zlist)
-    Discourse.redis.without_namespace.del(redis_key_hash)
-    Discourse.redis.without_namespace.zrem(self.class.redis_key_channel_list, name)
+    PresenceChannel.redis.del(redis_key_zlist)
+    PresenceChannel.redis.del(redis_key_hash)
+    PresenceChannel.redis.zrem(self.class.redis_key_channel_list, name)
   end
 
   private
@@ -90,8 +118,18 @@ class PresenceChannel
     MessageBus.publish(message_bus_channel_name, message)
   end
 
+  # The redis key which MessageBus uses to store the 'last_id' for the channel
+  # associated with this PresenceChannel.
+  def message_bus_last_id_key
+    return "" if Rails.env.test? && MessageBus.backend == :memory
+
+    # TODO: Avoid using private MessageBus methods here
+    encoded_channel_name = MessageBus.send(:encode_channel_name, message_bus_channel_name)
+    MessageBus.reliable_pub_sub.send(:backlog_id_key, encoded_channel_name)
+  end
+
   def redis_keys
-    [redis_key_zlist, redis_key_hash, self.class.redis_key_channel_list]
+    [redis_key_zlist, redis_key_hash, self.class.redis_key_channel_list, message_bus_last_id_key]
   end
 
   # The zlist is a list of client_ids, ranked by their expiration timestamp
@@ -116,7 +154,7 @@ class PresenceChannel
   # Designed to be run periodically. Checks the channel list for channels with expired members,
   # and runs auto_leave for each eligable channel
   def self.auto_leave_all
-    channels_with_expiring_members = Discourse.redis.zrangebyscore("_presence_channels", '-inf', Time.zone.now.to_i)
+    channels_with_expiring_members = PresenceChannel.redis.zrangebyscore(redis_key_channel_list, '-inf', Time.zone.now.to_i)
     channels_with_expiring_members.each do |name|
       new(name).auto_leave
     end
@@ -124,9 +162,23 @@ class PresenceChannel
 
   # Clear all known channels. This is intended for debugging/development only
   def self.clear_all!
-    channels = Discourse.redis.without_namespace.zrangebyscore(redis_key_channel_list, '-inf', '+inf')
+    channels = PresenceChannel.redis.zrangebyscore(redis_key_channel_list, '-inf', '+inf')
     channels.each do |name|
       new(name).clear
+    end
+  end
+
+  # Shortcut to access a redis client for all PresenceChannel activities.
+  # PresenceChannel must use the same Redis server as MessageBus, so that
+  # actions can be applied atomically. For the vast majority of Discourse
+  # installations, this is the same Redis server as `Discourse.redis`.
+  def self.redis
+    if MessageBus.backend == :redis
+      MessageBus.reliable_pub_sub.send(:pub_redis) # TODO: avoid a private API?
+    elsif Rails.env.test?
+      Discourse.redis.without_namespace
+    else
+      raise "PresenceChannel is unable to access MessageBus's Redis instance"
     end
   end
 
@@ -192,20 +244,34 @@ class PresenceChannel
   USER_IDS_LUA = <<~LUA
     local zlist_key = KEYS[1]
     local hash_key = KEYS[2]
+    local message_bus_id_key = KEYS[4]
 
     local user_ids = redis.call('HKEYS', hash_key)
     table.foreach(user_ids, function(k,v) user_ids[k] = tonumber(v) end)
 
-    return user_ids
+    local message_bus_id = tonumber(redis.call('GET', message_bus_id_key))
+    if message_bus_id == nil then
+      message_bus_id = -1
+    end
+
+    return { message_bus_id, user_ids }
   LUA
 
   COUNT_LUA = <<~LUA
     local zlist_key = KEYS[1]
     local hash_key = KEYS[2]
+    local message_bus_id_key = KEYS[4]
 
     local time = ARGV[1]
 
-    return redis.call('HLEN', hash_key)
+    local message_bus_id = tonumber(redis.call('GET', message_bus_id_key))
+    if message_bus_id == nil then
+      message_bus_id = -1
+    end
+
+    local count = redis.call('HLEN', hash_key)
+
+    return { message_bus_id, count }
   LUA
 
   AUTO_LEAVE_LUA = <<~LUA
