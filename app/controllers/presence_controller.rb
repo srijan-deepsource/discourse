@@ -12,8 +12,7 @@ class PresenceController < ApplicationController
     state = channel.state
 
     render json: {
-      user_ids: state.user_ids,
-      count: state.count,
+      users: state.user_ids,
       last_message_id: state.message_bus_last_id
     }
   end
